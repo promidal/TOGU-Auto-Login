@@ -68,6 +68,12 @@ function Parse-Token($html) {
     return $null
 }
 
+# Windows' own captive check: the portal intercepts it until we log in
+function Test-Internet {
+    $out = & curl.exe -s --max-time 5 "http://www.msftconnecttest.com/connecttest.txt"
+    return ($out -eq "Microsoft Connect Test")
+}
+
 function Test-LoginPage($html) {
     return ($html -match 'name="username"') -or ($html -match "Giriş Başarısız")
 }
@@ -101,13 +107,22 @@ function Keepalive-Once {
     $creds = Get-Credentials
     $token = $null
     if (Test-Path $TokenFile) { $token = (Get-Content $TokenFile).Trim() }
-    if (-not $token) { Login $creds | Out-Null; return }
+    if (-not $token) {
+        if (Test-Internet) { return }  # off campus: internet works without the portal
+        Login $creds | Out-Null
+        return
+    }
 
     $tmp = [System.IO.Path]::GetTempFileName()
     try {
         $code = Invoke-CurlGet "https://denetim.gop.edu.tr/keepalive?$token" $tmp
         $html = Get-Content $tmp -Raw
     } catch {
+        if (Test-Internet) {
+            Write-Log "Keepalive failed ($_) but internet works, off campus; dropping token"
+            Remove-Item $TokenFile
+            return
+        }
         Write-Log "Keepalive request failed ($_), attempting re-login"
         Login $creds | Out-Null
         return
@@ -117,8 +132,13 @@ function Keepalive-Once {
         Login $creds | Out-Null
         return
     }
-    # empty reply handling: if file empty
+    # empty reply handling: if file empty (curl.exe failures land here, they don't throw)
     if ([string]::IsNullOrWhiteSpace($html)) {
+        if (Test-Internet) {
+            Write-Log "Empty keepalive response but internet works, off campus; dropping token"
+            Remove-Item $TokenFile
+            return
+        }
         Write-Log "Empty response, attempting re-login"
         Login $creds | Out-Null
         return

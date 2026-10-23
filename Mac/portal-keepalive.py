@@ -91,6 +91,15 @@ def parse_token(html):
     return None
 
 
+def internet_ok():
+    # Apple's captive check: the portal intercepts it until we log in
+    try:
+        html, _ = http_get("http://captive.apple.com/hotspot-detect.html", timeout=5)
+        return "<TITLE>Success</TITLE>" in html
+    except Exception:
+        return False
+
+
 def is_login_page(html):
     return 'name="username"' in html or "Giriş Başarısız" in html
 
@@ -141,12 +150,18 @@ def keepalive_once():
         token = TOKEN_FILE.read_text(encoding="utf-8").strip()
 
     if not token:
+        if internet_ok():
+            return  # off campus: internet works without the portal
         login()
         return
 
     try:
         html, _ = http_get(f"{BASE}/keepalive?{token}")
     except Exception as e:
+        if internet_ok():
+            log(f"Keepalive failed ({e}) but internet works, off campus; dropping token")
+            TOKEN_FILE.unlink()
+            return
         log(f"Keepalive request failed ({e}), attempting re-login")
         login()
         return
