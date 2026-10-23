@@ -10,19 +10,19 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Inno Setup
         run: choco install innosetup -y
 
       - name: Build installer
         working-directory: "Windows taslağı"
+        shell: pwsh
         run: |
-          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-          & $iscc PortalKeepalive.iss
+          iscc PortalKeepalive.iss
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: PortalKeepalive-Windows-Installer
           path: |
