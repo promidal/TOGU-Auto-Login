@@ -25,4 +25,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PortalKeepalive-Windows-Installer
-          path: "Windows taslağı/Output/*.exe"
+          path: |
+            Windows taslağı/*.exe
+            Windows taslağı/Output/*.exe
