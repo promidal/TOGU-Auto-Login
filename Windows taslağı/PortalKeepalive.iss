@@ -17,4 +17,4 @@ Source: "Install-PortalKeepalive.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\Install-PortalKeepalive.ps1"""; Flags: runasoriginaluser waituntilterminated
 
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\Uninstall-PortalKeepalive.ps1"""; Flags: runasoriginaluser waituntilterminated
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\Uninstall-PortalKeepalive.ps1"""; Flags: runhidden
