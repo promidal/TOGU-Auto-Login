@@ -35,3 +35,26 @@ jobs:
           files: |
             Windows taslağı/*.exe
             Windows taslağı/Output/*.exe
+
+  # Runs after the Windows job so both don't race to create the same release
+  release-mac:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Package macOS files
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          sed -i "s/^VERSION = \"dev\"$/VERSION = \"$v\"/" Mac/portal-keepalive.py
+          grep -q "^VERSION = \"$v\"$" Mac/portal-keepalive.py || { echo "Could not stamp version"; exit 1; }
+          mkdir -p dist/PortalKeepalive-Mac
+          cp Mac/portal-keepalive.py Mac/com.serkan.portal-keepalive.plist Mac/install.sh Mac/uninstall.sh Mac/README.md dist/PortalKeepalive-Mac/
+          chmod 755 dist/PortalKeepalive-Mac/*.sh dist/PortalKeepalive-Mac/portal-keepalive.py
+          cd dist && zip -r PortalKeepalive-Mac.zip PortalKeepalive-Mac
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/PortalKeepalive-Mac.zip
