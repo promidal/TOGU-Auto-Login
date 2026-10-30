@@ -1,4 +1,4 @@
-$ErrorActionPreference = "SilentlyContinue"
+﻿$ErrorActionPreference = "SilentlyContinue"
 
 $AppName = "PortalKeepalive"
 $BaseDir = Join-Path $env:APPDATA $AppName

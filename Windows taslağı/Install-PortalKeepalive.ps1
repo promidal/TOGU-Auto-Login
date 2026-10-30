@@ -1,4 +1,11 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
+
+# Keep the console open on failure, otherwise the window just vanishes
+trap {
+    Write-Host "Kurulum hatasi: $_" -ForegroundColor Red
+    Read-Host "Kapatmak icin Enter'a basin" | Out-Null
+    exit 1
+}
 
 $AppName = "PortalKeepalive"
 $BaseDir = Join-Path $env:APPDATA $AppName
@@ -18,8 +25,8 @@ if (Test-Path $src) {
 # Register scheduled task (current user, at logon + every 1 minute)
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`" keepalive"
 $trigger = New-ScheduledTaskTrigger -AtLogOn
-$trigger.Repetition.Interval = "PT1M"
-$trigger.Repetition.Duration = "P1D"
+# An AtLogOn trigger has no Repetition object to set fields on; borrow one (empty Duration = indefinitely)
+$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1)).Repetition
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
 try {
@@ -29,8 +36,8 @@ try {
     Write-Warning "Could not register scheduled task: $_"
 }
 
-# Initial login (prompts for credentials)
+Write-Host "Installation complete. Keepalive will run at logon and every 1 minute."
+
+# Initial login (prompts for credentials, then waits for Enter)
 Write-Host "Initial setup: you will be asked for username and password."
 & powershell.exe -ExecutionPolicy Bypass -File $ScriptPath login
-
-Write-Host "Installation complete. Keepalive will run at logon and every 1 minute."

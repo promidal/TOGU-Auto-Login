@@ -8,6 +8,13 @@ Keeps the GOP University captive portal session (denetim.gop.edu.tr) alive on Wi
 3. When prompted, enter your institutional email and password.
 4. The script registers a scheduled task (at logon + every 1 minute) and performs the first login.
 
+## Changing the password
+Start menu -> "PortalKeepalive - Şifreyi Değiştir" (or run `PortalKeepalive.ps1 login`). It asks for the
+username and password again, tests them and saves them.
+
+If the portal rejects the saved password (e.g. it was changed), the keepalive shows a warning once and
+stops retrying (to avoid locking the account) until new credentials are entered this way.
+
 ## Uninstall
 Run `Uninstall-PortalKeepalive.ps1`.
 
@@ -25,3 +32,9 @@ Install Inno Setup on Windows, then compile `PortalKeepalive.iss`. The installer
 - Logs: `%APPDATA%\PortalKeepalive\portal.log`.
 - Requires `curl.exe` (built into Windows 10/11).
 - If the portal returns an empty response, the script attempts a re-login automatically.
+
+## Updates
+Once a day the keepalive checks the latest GitHub release of `promidal/TOGU-Auto-Login`. When a newer
+version is out it shows a one-time notice offering to open the download page; run the new installer over
+the old one. Releasing: push a tag like `v1.0.2` and the release workflow stamps that version into the
+script and the installer.
