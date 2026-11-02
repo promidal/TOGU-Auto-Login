@@ -24,17 +24,15 @@ if (Test-Path $src) {
 
 # Register scheduled task (current user, at logon + every 1 minute)
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`" keepalive"
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-# An AtLogOn trigger has no Repetition object to set fields on; borrow one (empty Duration = indefinitely)
-$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1)).Repetition
+# -User is required: this script runs unelevated and an any-user logon trigger needs admin rights ("Access denied")
+$logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+# Separate trigger for the repeat: a logon trigger's repetition only starts at the next logon (empty Duration = indefinitely)
+$repeatTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
-try {
-    Register-ScheduledTask -TaskName $AppName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-    Write-Host "Scheduled task registered"
-} catch {
-    Write-Warning "Could not register scheduled task: $_"
-}
+# Without the task nothing keeps the session alive, so a failure here must stop the install (see trap above)
+Register-ScheduledTask -TaskName $AppName -Action $action -Trigger @($logonTrigger, $repeatTrigger) -Principal $principal -Settings $settings -Force | Out-Null
+Write-Host "Scheduled task registered"
 
 Write-Host "Installation complete. Keepalive will run at logon and every 1 minute."
 

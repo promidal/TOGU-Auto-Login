@@ -45,6 +45,10 @@ Windows ve Mac arasında senkronize ediliyor (Windows yolu: `G:\Drive'ım\Docume
   Anahtar Zinciri, `~/.portal.env` taşınması, launchd ajanı, tek satır log ve launchd altından `osascript`
   uyarıları (display alert/dialog, -1713 hatası yok) çalıştı. `Kaldır.command` çift tıklamayla denenmedi.
   v1.0.3 etiketi v1.0.2 Windows kullanıcılarına da güncelleme uyarısı gösterir (Windows'ta değişiklik yok).
+- **v1.0.4 (2026-11-02, Windows, ilk gerçek kurulumda bulunan hata):** görev hiç oluşmuyordu: kurulum betiği yönetici
+  yetkisiz çalışıyor (`runasoriginaluser`), kullanıcısız `-AtLogOn` tetikleyicisi "Erişim engellendi" veriyor, hata da
+  yutuluyordu. Ayrıca logon tetikleyicisinin tekrarı ancak sonraki oturum açmada başlıyordu. Artık `-AtLogOn -User` +
+  ayrı `-Once` tekrar tetikleyicisi var; görev kaydedilemezse kurulum hata verip duruyor.
 
 ## Dikkat edilecekler
 - Windows `.ps1`/`.iss` dosyaları **UTF-8 BOM'lu** kalmalı (Windows PowerShell 5.1 ve Inno Setup BOM'suz
