@@ -23,7 +23,8 @@ if (Test-Path $src) {
 }
 
 # Register scheduled task (current user, at logon + every 1 minute)
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`" keepalive"
+# conhost --headless: -WindowStyle Hidden still flashes a console window on every run, because it only applies once PowerShell has started
+$action = New-ScheduledTaskAction -Execute "conhost.exe" -Argument "--headless powershell.exe -ExecutionPolicy Bypass -File `"$ScriptPath`" keepalive"
 # -User is required: this script runs unelevated and an any-user logon trigger needs admin rights ("Access denied")
 $logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 # Separate trigger for the repeat: a logon trigger's repetition only starts at the next logon (empty Duration = indefinitely)

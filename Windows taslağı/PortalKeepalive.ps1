@@ -9,6 +9,8 @@ $ConfigFile = Join-Path $BaseDir "config.json"
 $PassFile = Join-Path $BaseDir "pass.enc"
 $TokenFile = Join-Path $BaseDir "token.txt"
 $LogFile = Join-Path $BaseDir "portal.log"
+# A keepalive line every minute is about 30 MB a year; keep this file plus one previous (portal.log.1)
+$LogMaxBytes = 1MB
 # Present while the portal rejects the saved password; keepalive stops trying until new credentials are entered
 $BadCredsFile = Join-Path $BaseDir "bad-credentials"
 $UpdateCheckFile = Join-Path $BaseDir "update-check.json"
@@ -17,6 +19,9 @@ function Write-Log($msg) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $line = "$ts $msg"
     if (-not (Test-Path $BaseDir)) { New-Item -ItemType Directory -Path $BaseDir | Out-Null }
+    try {
+        if ((Test-Path $LogFile) -and (Get-Item $LogFile).Length -ge $LogMaxBytes) { Move-Item $LogFile "$LogFile.1" -Force }
+    } catch {}  # a failed rotation must not stop the keepalive
     Add-Content -Path $LogFile -Value $line
     Write-Host $line
 }
@@ -192,8 +197,8 @@ function Check-Update {
     Write-Log "Update available: $($rel.tag_name) (installed $AppVersion)"
     @{ LastCheck = (Get-Date).ToString("o"); Notified = $rel.tag_name } | ConvertTo-Json | Set-Content -Path $UpdateCheckFile
     # Separate process: a waiting dialog here would hold up the keepalive task
-    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
-        "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", "update-notice", $rel.tag_name, $rel.html_url)
+    Start-Process conhost.exe -ArgumentList @(
+        "--headless", "powershell.exe", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", "update-notice", $rel.tag_name, $rel.html_url)
 }
 
 function Show-UpdateNotice($tag, $url) {

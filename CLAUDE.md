@@ -49,6 +49,8 @@ Windows ve Mac arasında senkronize ediliyor (Windows yolu: `G:\Drive'ım\Docume
   yetkisiz çalışıyor (`runasoriginaluser`), kullanıcısız `-AtLogOn` tetikleyicisi "Erişim engellendi" veriyor, hata da
   yutuluyordu. Ayrıca logon tetikleyicisinin tekrarı ancak sonraki oturum açmada başlıyordu. Artık `-AtLogOn -User` +
   ayrı `-Once` tekrar tetikleyicisi var; görev kaydedilemezse kurulum hata verip duruyor.
+- **v1.0.5 (2026-11-02, Windows):** görev ve güncelleme uyarısı `conhost.exe --headless` ile başlıyor (`-WindowStyle
+  Hidden` her çalışmada pencere yanıp söndürüyordu). `portal.log` 1 MB'de `portal.log.1`'e dönüyor.
 
 ## Dikkat edilecekler
 - Windows `.ps1`/`.iss` dosyaları **UTF-8 BOM'lu** kalmalı (Windows PowerShell 5.1 ve Inno Setup BOM'suz
