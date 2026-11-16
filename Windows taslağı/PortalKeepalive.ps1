@@ -4,7 +4,8 @@ $AppName = "PortalKeepalive"
 # Stamped from the git tag by the release workflow; "dev" builds skip the update check
 $AppVersion = "dev"
 $Repo = "promidal/TOGU-Auto-Login"
-$BaseDir = Join-Path $env:APPDATA $AppName
+# Machine-wide (not %APPDATA%): the task runs as SYSTEM at boot, before any user logs on
+$BaseDir = Join-Path $env:ProgramData $AppName
 $ConfigFile = Join-Path $BaseDir "config.json"
 $PassFile = Join-Path $BaseDir "pass.enc"
 $TokenFile = Join-Path $BaseDir "token.txt"
@@ -14,6 +15,9 @@ $LogMaxBytes = 1MB
 # Present while the portal rejects the saved password; keepalive stops trying until new credentials are entered
 $BadCredsFile = Join-Path $BaseDir "bad-credentials"
 $UpdateCheckFile = Join-Path $BaseDir "update-check.json"
+# SYSTEM has no desktop; it leaves these for the logon task ("notify" mode) to show once in the user's session
+$BadCredsShownFile = Join-Path $BaseDir "bad-credentials-shown"
+$UpdatePendingFile = Join-Path $BaseDir "update-pending.json"
 
 function Write-Log($msg) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -38,6 +42,18 @@ function Test-Credentials {
     return ($cfg -and $cfg.Username -and (Test-Path $PassFile))
 }
 
+# LocalMachine scope so SYSTEM (boot) and the user (password change) both read the same file
+# shortcut: any local user can decrypt it, fine for a personal PC; use a per-user task if that matters
+function Protect-Text($text) {
+    Add-Type -AssemblyName System.Security
+    [Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($text), $null, "LocalMachine"))
+}
+
+function Unprotect-Text($b64) {
+    Add-Type -AssemblyName System.Security
+    [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($b64), $null, "LocalMachine"))
+}
+
 function Get-Credentials($Prompt = $false) {
     if ($Prompt -or -not (Test-Credentials)) {
         if (-not (Test-Path $BaseDir)) { New-Item -ItemType Directory -Path $BaseDir | Out-Null }
@@ -45,17 +61,14 @@ function Get-Credentials($Prompt = $false) {
             $user = (Read-Host "Kullanici adi (kurumsal e-posta, ornek: isminiz.soyisminizXXXX@gop.edu.tr)").Trim()
         } while (-not $user)
         $secure = Read-Host "Parola" -AsSecureString
-        $enc = $secure | ConvertFrom-SecureString
+        $enc = Protect-Text ([pscredential]::new("x", $secure).GetNetworkCredential().Password)
         Set-Content -Path $PassFile -Value $enc
         $cfg = @{ Username = $user }
         $cfg | ConvertTo-Json | Set-Content -Path $ConfigFile
-        Remove-Item $BadCredsFile -ErrorAction SilentlyContinue
+        Remove-Item $BadCredsFile, $BadCredsShownFile -ErrorAction SilentlyContinue
         Write-Log "Credentials saved"
     }
-    $secure = Get-Content $PassFile | ConvertTo-SecureString
-    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-    $pass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    $pass = Unprotect-Text (Get-Content $PassFile -Raw).Trim()
     $cfg = Load-Config
     return @{ Username = $cfg.Username; Password = $pass }
 }
@@ -196,9 +209,7 @@ function Check-Update {
 
     Write-Log "Update available: $($rel.tag_name) (installed $AppVersion)"
     @{ LastCheck = (Get-Date).ToString("o"); Notified = $rel.tag_name } | ConvertTo-Json | Set-Content -Path $UpdateCheckFile
-    # Separate process: a waiting dialog here would hold up the keepalive task
-    Start-Process conhost.exe -ArgumentList @(
-        "--headless", "powershell.exe", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", "update-notice", $rel.tag_name, $rel.html_url)
+    @{ Tag = $rel.tag_name; Url = $rel.html_url } | ConvertTo-Json | Set-Content -Path $UpdatePendingFile
 }
 
 function Show-UpdateNotice($tag, $url) {
@@ -234,8 +245,22 @@ if (-not (Test-Path $BaseDir)) { New-Item -ItemType Directory -Path $BaseDir | O
 $mode = "keepalive"
 if ($args.Count -gt 0) { $mode = $args[0] }
 
-if ($mode -eq "update-notice") {
-    Show-UpdateNotice $args[1] $args[2]
+if ($mode -eq "notify") {
+    # Logon task, user session: show what the SYSTEM keepalive could not
+    Add-Type -AssemblyName System.Windows.Forms
+    if ((Test-Path $BadCredsFile) -and -not (Test-Path $BadCredsShownFile)) {
+        Set-Content -Path $BadCredsShownFile -Value (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+        [System.Windows.Forms.MessageBox]::Show(
+            "Portal şifrenizi kabul etmedi; şifreniz değişmiş olabilir.`n`nYeni şifrenizi girmek için Başlat menüsünden 'PortalKeepalive - Şifreyi Değiştir' kısayolunu açın.`n`nO zamana kadar otomatik giriş durduruldu.",
+            "PortalKeepalive",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
+    }
+    if (Test-Path $UpdatePendingFile) {
+        $u = Get-Content $UpdatePendingFile -Raw | ConvertFrom-Json
+        Remove-Item $UpdatePendingFile
+        Show-UpdateNotice $u.Tag $u.Url
+    }
 } elseif ($mode -eq "login") {
     # Always ask: this is how the user changes the saved username/password
     # (installer, or the "Sifreyi Degistir" Start menu shortcut)
@@ -263,12 +288,4 @@ if ($mode -eq "update-notice") {
     if (Test-Path $BadCredsFile) { exit 1 }  # already told the user; wait for new credentials
     Retry { Keepalive-Once } | Out-Null
     try { Check-Update } catch { Write-Log "Update check failed: $_" }
-    if (Test-Path $BadCredsFile) {
-        Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.MessageBox]::Show(
-            "Portal şifrenizi kabul etmedi; şifreniz değişmiş olabilir.`n`nYeni şifrenizi girmek için Başlat menüsünden 'PortalKeepalive - Şifreyi Değiştir' kısayolunu açın.`n`nO zamana kadar otomatik giriş durduruldu.",
-            "PortalKeepalive",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
-    }
 }

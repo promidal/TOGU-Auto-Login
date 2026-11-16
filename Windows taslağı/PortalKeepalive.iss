@@ -23,7 +23,7 @@ Name: "{group}\PortalKeepalive - Şifreyi Değiştir"; Filename: "powershell.exe
 Name: "{group}\PortalKeepalive - Kaldır"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\Install-PortalKeepalive.ps1"""; Flags: runasoriginaluser waituntilterminated
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\Install-PortalKeepalive.ps1"""; Flags: waituntilterminated
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\Uninstall-PortalKeepalive.ps1"""; Flags: runhidden

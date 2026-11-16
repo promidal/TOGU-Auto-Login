@@ -1,9 +1,9 @@
 ﻿$ErrorActionPreference = "SilentlyContinue"
 
 $AppName = "PortalKeepalive"
-$BaseDir = Join-Path $env:APPDATA $AppName
+$BaseDir = Join-Path $env:ProgramData $AppName
 
-try { Unregister-ScheduledTask -TaskName $AppName -Confirm:$false } catch {}
+foreach ($t in $AppName, "$AppName-Notify") { try { Unregister-ScheduledTask -TaskName $t -Confirm:$false } catch {} }
 Remove-Item -Recurse -Force $BaseDir
 
 Write-Host "PortalKeepalive uninstalled."

@@ -6,7 +6,7 @@ Keeps the GOP University captive portal session (denetim.gop.edu.tr) alive on Wi
 1. Copy `PortalKeepalive.ps1` and `Install-PortalKeepalive.ps1` to the same folder.
 2. Right-click `Install-PortalKeepalive.ps1` -> "Run with PowerShell" (or run in PowerShell).
 3. When prompted, enter your institutional email and password.
-4. The script registers a scheduled task (at logon + every 1 minute) and performs the first login.
+4. The script registers a scheduled task (SYSTEM, at boot + every 1 minute; needs an elevated PowerShell) and performs the first login.
 
 ## Changing the password
 Start menu -> "PortalKeepalive - Şifreyi Değiştir" (or run `PortalKeepalive.ps1 login`). It asks for the
@@ -28,8 +28,8 @@ Run `Uninstall-PortalKeepalive.ps1`.
 Install Inno Setup on Windows, then compile `PortalKeepalive.iss`. The installer will install the PowerShell scripts and run the installer as the original user.
 
 ## Notes
-- Credentials are stored with Windows DPAPI (user-scoped, encrypted) in `%APPDATA%\PortalKeepalive\pass.enc`.
-- Logs: `%APPDATA%\PortalKeepalive\portal.log`.
+- Credentials are stored with Windows DPAPI (machine scope, so the boot task can read it) in `%ProgramData%\PortalKeepalive\pass.enc`.
+- Logs: `%ProgramData%\PortalKeepalive\portal.log`.
 - Requires `curl.exe` (built into Windows 10/11).
 - If the portal returns an empty response, the script attempts a re-login automatically.
 
