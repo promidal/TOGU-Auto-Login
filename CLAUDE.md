@@ -6,9 +6,15 @@ Windows ve Mac arasında senkronize ediliyor (Windows yolu: `G:\Drive'ım\Docume
 
 ## Yapı
 - `Windows taslağı/` — PowerShell + Task Scheduler + Inno Setup yükleyici
-  - `PortalKeepalive.ps1` (ana mantık; modlar: `keepalive`, `login`, `update-notice`)
+  - `PortalKeepalive.ps1` (ana mantık; modlar: `keepalive`, `login`, `notify`)
   - `Install-PortalKeepalive.ps1`, `Uninstall-PortalKeepalive.ps1`, `PortalKeepalive.iss`
-  - Veri: `%APPDATA%\PortalKeepalive\` (config.json, pass.enc [DPAPI], token.txt, portal.log, bad-credentials, update-check.json)
+  - Görevler (v1.0.6+): `PortalKeepalive` = SYSTEM, açılışta + her dakika (oturum açılmasını beklemez, ekran yok);
+    `PortalKeepalive-Notify` = her kullanıcının oturum açışında `notify` modu (SYSTEM ekran gösteremez, uyarılar burada)
+  - Betik `%ProgramFiles%\PortalKeepalive\` altında (yönetici dışı yazamasın: SYSTEM çalıştırıyor). Yükleyici yönetici
+    olarak çalışır (`.iss`'de `runasoriginaluser` yok), betik de yönetici değilse hata verir.
+  - Veri: `%ProgramData%\PortalKeepalive\` (Users: değiştirme izni; config.json, pass.enc [DPAPI **LocalMachine**, base64],
+    token.txt, portal.log, bad-credentials, bad-credentials-shown, update-pending.json, update-check.json).
+    Eski %APPDATA% verisi kurulumda silinir; kullanıcı bilgileri yeniden sorulur.
 - `Mac/` — Python 3 (`/usr/bin/python3`) + launchd
   - `portal-keepalive.py` (modlar: `keepalive`, `login`), `install.sh`, `uninstall.sh`,
     `com.serkan.portal-keepalive.plist` (şablon, `__HOME__` yer tutucusu install.sh'de sed ile dolar)
@@ -28,12 +34,12 @@ Windows ve Mac arasında senkronize ediliyor (Windows yolu: `G:\Drive'ım\Docume
 2. Şifre değiştirme: Windows'ta Başlat menüsü "PortalKeepalive - Şifreyi Değiştir", Mac'te
    `~/Applications/PortalKeepalive/Şifreyi Değiştir.command` → `login` modu (her zaman yeniden sorar).
 3. Portal şifreyi reddederse (`Giriş Başarısız` / `Kullanıcı adı / parola hatalı`) bad-credentials işareti
-   yazılır, tekrar denenmez (hesap kilitlenme riski), kullanıcıya BİR KEZ uyarı gösterilir; yeni şifre
+   yazılır, tekrar denenmez (hesap kilitlenme riski), kullanıcıya BİR KEZ uyarı gösterilir (Windows'ta `notify` görevi, `bad-credentials-shown` ile); yeni şifre
    girilince işaret silinir.
 4. Güncelleme kontrolü: arka plan görevi günde en fazla 1 kez GitHub `releases/latest`'e bakar
    (anonim limit 60/saat), daha yeni sürüm varsa her sürüm için bir kez "indirme sayfasını aç" uyarısı.
-   "dev" sürümde kontrol yapılmaz. Uyarı ayrı süreçte açılır ki keepalive beklemesin.
-5. Arka plan görevi asla kullanıcıdan girdi istemez (gizli pencerede Read-Host sonsuza kadar asılı kalırdı).
+   "dev" sürümde kontrol yapılmaz. Uyarı ayrı süreçte açılır ki keepalive beklemesin (Windows'ta SYSTEM `update-pending.json` yazar, `notify` gösterir).
+5. Arka plan görevi asla kullanıcıdan girdi istemez; Windows'ta oturum açılmadan, açılışta çalışır (gizli pencerede Read-Host sonsuza kadar asılı kalırdı).
 
 ## Yapılanlar (2026-10-30, Windows makinesinde)
 - **v1.0.2 yayınlandı** (commit `8cd3bbe`, sadece Windows): kurulumda şifre sorulmaması hatası düzeltildi
@@ -51,6 +57,10 @@ Windows ve Mac arasında senkronize ediliyor (Windows yolu: `G:\Drive'ım\Docume
   ayrı `-Once` tekrar tetikleyicisi var; görev kaydedilemezse kurulum hata verip duruyor.
 - **v1.0.5 (2026-11-02, Windows):** görev ve güncelleme uyarısı `conhost.exe --headless` ile başlıyor (`-WindowStyle
   Hidden` her çalışmada pencere yanıp söndürüyordu). `portal.log` 1 MB'de `portal.log.1`'e dönüyor.
+
+- **v1.0.6 (2026-11-16, Windows):** keepalive artık SYSTEM olarak açılışta başlıyor (eskiden yalnızca oturum açınca);
+  veri `%APPDATA%` → `%ProgramData%`, DPAPI LocalMachine kapsamı, `notify` görevi. Gerçek kurulum + yeniden başlatma
+  ile HENÜZ test edilmedi. Bilinen sınır: Wi-Fi profili "tüm kullanıcılar" için kayıtlı değilse oturum açılmadan ağa bağlanılmaz.
 
 ## Dikkat edilecekler
 - Windows `.ps1`/`.iss` dosyaları **UTF-8 BOM'lu** kalmalı (Windows PowerShell 5.1 ve Inno Setup BOM'suz

@@ -32,18 +32,27 @@ function New-HeadlessAction($mode) {
     New-ScheduledTaskAction -Execute "conhost.exe" -Argument "--headless powershell.exe -ExecutionPolicy Bypass -File `"$ScriptPath`" $mode"
 }
 
-# Keepalive: SYSTEM at boot + every minute, so the connection is up before anyone logs on and no window ever shows
+# Keepalive: SYSTEM at boot (20s delay for network/DHCP), on network connect (boot/wake/reconnect), + every minute
 $startTrigger = New-ScheduledTaskTrigger -AtStartup
+$startTrigger.Delay = "PT20S"
 # Separate trigger for the repeat: a startup trigger's repetition is unreliable (empty Duration = indefinitely)
 $repeatTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
+# Trigger on network connect (covers boot, sleep wake, and network reconnect)
+$cimTriggerClass = Get-CimClass -ClassName MSFT_TaskEventTrigger -Namespace Root/Microsoft/Windows/TaskScheduler
+$netTrigger = New-CimInstance -CimClass $cimTriggerClass -ClientOnly
+$netTrigger.Enabled = $true
+$netTrigger.Delay = "PT5S"
+$netTrigger.Subscription = "<QueryList><Query Id='0' Path='Microsoft-Windows-NetworkProfile/Operational'><Select Path='Microsoft-Windows-NetworkProfile/Operational'>*[System[EventID=10000]]</Select></Query></QueryList>"
+
 $system = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
 # Without the task nothing keeps the session alive, so a failure here must stop the install (see trap above)
-Register-ScheduledTask -TaskName $AppName -Action (New-HeadlessAction "keepalive") -Trigger @($startTrigger, $repeatTrigger) -Principal $system -Settings $settings -Force | Out-Null
+Register-ScheduledTask -TaskName $AppName -Action (New-HeadlessAction "keepalive") -Trigger @($startTrigger, $repeatTrigger, $netTrigger) -Principal $system -Settings $settings -Force | Out-Null
 
 # Warnings (rejected password, new version) can't be shown from SYSTEM: show them once at each user's logon
 $users = New-ScheduledTaskPrincipal -GroupId "S-1-5-32-545" -RunLevel Limited
-Register-ScheduledTask -TaskName "$AppName-Notify" -Action (New-HeadlessAction "notify") -Trigger (New-ScheduledTaskTrigger -AtLogOn) -Principal $users -Settings $settings -Force | Out-Null
+$notifySettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName "$AppName-Notify" -Action (New-HeadlessAction "notify") -Trigger (New-ScheduledTaskTrigger -AtLogOn) -Principal $users -Settings $notifySettings -Force | Out-Null
 Write-Host "Scheduled tasks registered"
 
 # Credentials from a pre-boot-task install lived per user in %APPDATA%; they are asked for again below

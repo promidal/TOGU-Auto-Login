@@ -76,6 +76,9 @@ function Get-Credentials($Prompt = $false) {
 function Invoke-CurlGet($url, $outFile) {
     $args = @("-sS", "-k", "--max-time", "15", "-A", "Mozilla/5.0", "-o", $outFile, "-w", "%{http_code}", $url)
     $code = & curl.exe @args
+    if ($LASTEXITCODE -ne 0 -or "$code".Trim() -eq "000") {
+        throw "curl.exe failed (exit=$LASTEXITCODE, http=$code) for $url"
+    }
     return $code
 }
 
@@ -101,8 +104,13 @@ function Parse-Token($html) {
 
 # Windows' own captive check: the portal intercepts it until we log in
 function Test-Internet {
-    $out = & curl.exe -s --max-time 5 "http://www.msftconnecttest.com/connecttest.txt"
+    $out = & curl.exe -s --max-time 5 -H "Cache-Control: no-cache" "http://www.msftconnecttest.com/connecttest.txt"
     return ($out -eq "Microsoft Connect Test")
+}
+
+function Test-PortalReachable {
+    $code = & curl.exe -s -k --max-time 5 -o NUL -w "%{http_code}" "https://denetim.gop.edu.tr/login?0"
+    return ($LASTEXITCODE -eq 0 -and $code -and "$code".Trim() -ne "000")
 }
 
 function Test-LoginPage($html) {
@@ -112,27 +120,34 @@ function Test-LoginPage($html) {
 function Login($creds) {
     if (-not (Test-Path $BaseDir)) { New-Item -ItemType Directory -Path $BaseDir | Out-Null }
     $tmp = [System.IO.Path]::GetTempFileName()
-    $code = Invoke-CurlGet "https://denetim.gop.edu.tr/login?0" $tmp
-    $html = Get-Content $tmp -Raw
-    $magic = Parse-Input $html "magic"
-    $redir = Parse-Input $html "4Tredir"
-    if (-not $redir) { $redir = "https://denetim.gop.edu.tr/login?0" }
     $postTmp = [System.IO.Path]::GetTempFileName()
-    $body = "4Tredir=$([System.Uri]::EscapeDataString($redir))&magic=$([System.Uri]::EscapeDataString($magic))&username=$([System.Uri]::EscapeDataString($creds.Username))&password=$([System.Uri]::EscapeDataString($creds.Password))"
-    $code = & curl.exe -sS -k --max-time 15 -A "Mozilla/5.0" -o $postTmp -w "%{http_code}" -d $body "https://denetim.gop.edu.tr/"
-    $resp = Get-Content $postTmp -Raw
-    if ($resp -match "Giriş Başarısız" -or $resp -match "Kullanıcı adı / parola hatalı") {
-        Set-Content -Path $BadCredsFile -Value (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
-        throw "Login failed: bad credentials"
+    try {
+        $code = Invoke-CurlGet "https://denetim.gop.edu.tr/login?0" $tmp
+        $html = Get-Content $tmp -Raw
+        $magic = Parse-Input $html "magic"
+        $redir = Parse-Input $html "4Tredir"
+        if (-not $redir) { $redir = "https://denetim.gop.edu.tr/login?0" }
+        $body = "4Tredir=$([System.Uri]::EscapeDataString($redir))&magic=$([System.Uri]::EscapeDataString($magic))&username=$([System.Uri]::EscapeDataString($creds.Username))&password=$([System.Uri]::EscapeDataString($creds.Password))"
+        $code = & curl.exe -sS -k --max-time 15 -A "Mozilla/5.0" -o $postTmp -w "%{http_code}" -d $body "https://denetim.gop.edu.tr/"
+        if ($LASTEXITCODE -ne 0 -or "$code".Trim() -eq "000") {
+            throw "curl.exe login POST failed (exit=$LASTEXITCODE, http=$code)"
+        }
+        $resp = Get-Content $postTmp -Raw
+        if ($resp -match "Giriş Başarısız" -or $resp -match "Kullanıcı adı / parola hatalı") {
+            Set-Content -Path $BadCredsFile -Value (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+            throw "Login failed: bad credentials"
+        }
+        if (Test-LoginPage $resp) {
+            throw "Login failed: still on login page"
+        }
+        $token = Parse-Token $resp
+        if (-not $token) { throw "Login succeeded but no token found" }
+        Set-Content -Path $TokenFile -Value $token
+        Write-Log "Login OK, token=$token"
+        return $token
+    } finally {
+        Remove-Item $tmp, $postTmp -ErrorAction SilentlyContinue
     }
-    if (Test-LoginPage $resp) {
-        throw "Login failed: still on login page"
-    }
-    $token = Parse-Token $resp
-    if (-not $token) { throw "Login succeeded but no token found" }
-    Set-Content -Path $TokenFile -Value $token
-    Write-Log "Login OK, token=$token"
-    return $token
 }
 
 function Keepalive-Once {
@@ -140,47 +155,54 @@ function Keepalive-Once {
     $token = $null
     if (Test-Path $TokenFile) { $token = (Get-Content $TokenFile).Trim() }
     if (-not $token) {
-        if (Test-Internet) { return }  # off campus: internet works without the portal
+        if (-not (Test-PortalReachable) -and (Test-Internet)) {
+            Write-Log "No token and off campus (portal unreachable, internet works); skipping"
+            return
+        }
+        Write-Log "No token; attempting login"
         Login $creds | Out-Null
         return
     }
 
     $tmp = [System.IO.Path]::GetTempFileName()
     try {
-        $code = Invoke-CurlGet "https://denetim.gop.edu.tr/keepalive?$token" $tmp
-        $html = Get-Content $tmp -Raw
-    } catch {
-        if (Test-Internet) {
-            Write-Log "Keepalive failed ($_) but internet works, off campus; dropping token"
-            Remove-Item $TokenFile
+        try {
+            $code = Invoke-CurlGet "https://denetim.gop.edu.tr/keepalive?$token" $tmp
+            $html = Get-Content $tmp -Raw
+        } catch {
+            if (-not (Test-PortalReachable) -and (Test-Internet)) {
+                Write-Log "Keepalive failed ($_) and portal unreachable while internet works, off campus; dropping token"
+                Remove-Item $TokenFile -ErrorAction SilentlyContinue
+                return
+            }
+            Write-Log "Keepalive request failed ($_), attempting re-login"
+            Login $creds | Out-Null
             return
         }
-        Write-Log "Keepalive request failed ($_), attempting re-login"
-        Login $creds | Out-Null
-        return
-    }
-    if (Test-LoginPage $html) {
-        Write-Log "Session expired, re-login"
-        Login $creds | Out-Null
-        return
-    }
-    # empty reply handling: if file empty (curl.exe failures land here, they don't throw)
-    if ([string]::IsNullOrWhiteSpace($html)) {
-        if (Test-Internet) {
-            Write-Log "Empty keepalive response but internet works, off campus; dropping token"
-            Remove-Item $TokenFile
+        if (Test-LoginPage $html) {
+            Write-Log "Session expired, re-login"
+            Login $creds | Out-Null
             return
         }
-        Write-Log "Empty response, attempting re-login"
-        Login $creds | Out-Null
-        return
+        if ([string]::IsNullOrWhiteSpace($html)) {
+            if (-not (Test-PortalReachable) -and (Test-Internet)) {
+                Write-Log "Empty keepalive response and portal unreachable while internet works, off campus; dropping token"
+                Remove-Item $TokenFile -ErrorAction SilentlyContinue
+                return
+            }
+            Write-Log "Empty response, attempting re-login"
+            Login $creds | Out-Null
+            return
+        }
+        $newToken = Parse-Token $html
+        if ($newToken -and $newToken -ne $token) {
+            Set-Content -Path $TokenFile -Value $newToken
+            $token = $newToken
+        }
+        Write-Log "Keepalive OK, token=$token"
+    } finally {
+        Remove-Item $tmp -ErrorAction SilentlyContinue
     }
-    $newToken = Parse-Token $html
-    if ($newToken -and $newToken -ne $token) {
-        Set-Content -Path $TokenFile -Value $newToken
-        $token = $newToken
-    }
-    Write-Log "Keepalive OK, token=$token"
 }
 
 # At most once a day (GitHub allows 60 unauthenticated requests/hour); each new release is announced once
@@ -285,7 +307,10 @@ if ($mode -eq "notify") {
         Write-Log "No saved credentials; run the installer (or: PortalKeepalive.ps1 login)"
         exit 1
     }
-    if (Test-Path $BadCredsFile) { exit 1 }  # already told the user; wait for new credentials
+    if (Test-Path $BadCredsFile) {
+        Write-Log "Skipping keepalive: bad-credentials flag is set"
+        exit 1  # already told the user; wait for new credentials
+    }
     Retry { Keepalive-Once } | Out-Null
     try { Check-Update } catch { Write-Log "Update check failed: $_" }
 }
